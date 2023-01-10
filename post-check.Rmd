@@ -1,0 +1,61 @@
+---
+title: "05-detailsexplained"
+author: 'Chin Chen Lo #13216940'
+date: "13/04/2022"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+
+# Overall 
+
+mean(cars.train$Kilometers_Driven) # 57704
+
+median(cars.train$Kilometers_Driven) #53013 
+
+
+# Most brand names had negative coefficients 
+
+## Audi is the baseline, let's check the statistics
+mean(cars.train[cars.train$Name=="Audi",]$Kilometers_Driven) # mean = 53185 # median = 50501
+mean(cars.train[cars.train$Name=="Audi",]$Age) # mean age = 8.4
+
+
+
+### High-end brands
+median(cars.train[cars.train$Name=="Porsche",]$Kilometers_Driven) # 52397.4444 # median = 45648.5
+mean(cars.train$Kilometers_Driven) #57718 # median = 53024
+
+
+# BMW
+median(cars.train[cars.train$Name=="BMW",]$Kilometers_Driven) # 55391 # median = 53000
+
+
+
+# Positive coefficients
+# Jaguar
+mean(cars.train[cars.train$Name=="Jaguar",]$Kilometers_Driven) # 35830  # median = 31275
+
+# Land
+mean(cars.train[cars.train$Name=="Land",]$Kilometers_Driven) # 58638  # median = 58638
+mean(cars.train[cars.train$Name=="Land",]$Age) # 8
+
+
+
+# Mini
+median(cars.train[cars.train$Name=="Mini",]$Kilometers_Driven) # 46393  # median = 45355
+mean(cars.train[cars.train$Name=="Mini",]$Age) # 7.9
+
+# Mitsubishi: Low depreciation rate
+
+median(cars.train[cars.train$Name=="Mitsubishi",]$Kilometers_Driven) # 45427  # median = 34000
+mean(cars.train[cars.train$Name=="Mitsubishi",]$Age) # 10
+
+
+# Volkswagen
+
+```

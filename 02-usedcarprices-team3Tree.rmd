@@ -1,0 +1,559 @@
+---
+title: "Used Car Prices in India - Model Building"
+author: 'Chin Chen Lo #13216940'
+date: "12/03/2022"
+output: word_document
+fig_width: 6 
+fig_height: 4 
+---
+
+### Official copy and official variables
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(dpi=300,fig.width=7)
+library(stringr)
+library(dplyr)
+library(rpart)
+library(rpart.plot)
+library(caTools)
+library(pROC)
+library(reshape2)
+library(ggplot2)
+library(car)
+library(Metrics)
+library(caret)
+library(randomForest)
+options(digits=2)
+set.seed(447)
+```
+
+```{r}
+cars.train <- read.csv("C:/Users/Melody Lo/OneDrive - UBC/Desktop/2022W/STAT 447B/Project/cars.train.csv")
+print(c(ncol(cars.train),nrow(cars.train)))
+
+```
+
+
+
+### Data Cleaning
+
+```{r}
+
+# CamelCase variables are the ones to be used in the model
+
+
+# In the initial EDA, we came across a 2017 BMW with an uncredible value for `Kilometers_Driven`. The vehicle is only 5 years old and has over 6 million kms driven and is an extreme value even after all transforms. We will thus remove this observation. 
+cars.train[495,]
+cars.train = cars.train[-495,] # remove uncredible value
+
+# Initial Errors with Train / Test split: 
+# We ran into some problems where the testing dataset has unique values for `Name` (car brand) in which the training dataset did not have (by set.seed(447)). The dataset had single observations for numerous car brands in wWhich prevents us fromt training the algorithm to predict. 
+### We will remove these observations here prior to the code that splits our dataset.
+
+which(cars.train$Name=="Bentley") #238
+which(cars.train$Name=="Force") # 667,668,669
+which(cars.train$Name=="ISUZU") # 2684
+which(cars.train$Name=="Lamborghini") #2740
+which(cars.train$Name=="Smart") # 5039
+which(cars.train$Name=="Ambassador") #1
+which(cars.train$body.type=="pickup truck") # 5246, 5247, 5248
+which(cars.train$body.type=="truck") #2684,2685
+cars.train=cars.train[-c(1,238,667,668,669,2679,2684,2685,2740,5039,5246,5247,5248),]
+nrow(cars.train)
+
+# Including the extreme value for BMW, we removed a total of 14 observations
+# n = 6002
+
+```
+### Data Wrangling
+```{r}
+
+# We will rename the individual variables as it provides convenience for removing features in training algorithms.
+
+# The conversion rate we used for INR Lahks to CAD - This step was done to help the interpretation of our audience. 
+cars.train$Price=cars.train$Price*1666.49
+Price=cars.train$Price
+logPrice=log(Price) # log transform for the variable `Price` most approximates the Normal
+
+# 1. `Name` : Brand name of the vehicle
+Name=as.factor(cars.train$Name)
+table(Name)
+
+# Name
+#          Audi           BMW     Chevrolet        Datsun          Fiat          Ford         Honda       Hyundai 
+#           236           266           121            13            28           300           607          1106 
+#        Jaguar          Jeep          Land      Mahindra        Maruti Mercedes-Benz          Mini    Mitsubishi 
+#            39            15            60           271          1172           315            26            27 
+#        Nissan       Porsche       Renault         Skoda          Tata        Toyota    Volkswagen         Volvo 
+#            91            18           145           173           182           408           362            21 
+
+# 2. `BodyType` : This was a factor variable that we implemented intended to improve the predictability of our model. This variable was created based on previous knowledge and research. 
+unique(cars.train$body.type)
+BodyType=as.factor(cars.train$body.type) # Convert into factor
+
+# 3. `Age` : is 2022 (current year) - the `Year` of the car from the original Kaggle dataset. 
+Age=cars.train$Age
+
+# 4. `KMsDriven` : The Kilometers Driven of the used car.
+cars.train$Kilometers_Driven=strtoi(cars.train$Kilometers_Driven) # Convert string to integer
+
+# 5. `Fuel_Type` : The type of fuel the used vehicle uses. 
+
+# table(cars.train$Fuel_Type) 
+ # CNG Diesel    LPG Petrol 
+ #  56   3205     10   2745 
+# Due to the small amount of observations for `CNG` and `LPG`, we will combine the two classes -- Keep categories as `Diesel` `Petrol` and `Other`.
+
+cars.train$Fuel_Type[cars.train$Fuel_Type=="CNG"]<-"Other"
+cars.train$Fuel_Type[cars.train$Fuel_Type=="LPG"]<-"Other"
+FuelType=factor(cars.train$Fuel_Type)
+table(FuelType)
+
+# 6. `Transmission` : The transmission type of the used vehicle. Takes on categories: `Manual` and `Automatic`.
+
+cars.train$Transmission=as.factor(cars.train$Transmission) # convert to factor
+Transmission=cars.train$Transmission
+table(Transmission)
+
+
+# 7. `OwnerType` : Is an english word for the type of the previous owner. For example: `First` indicates the previous owner was the first owner of the current used car. 
+table(cars.train$Owner_Type)
+       # First Fourth & Above         Second 
+       #  4926              9            968 
+       # Third 
+       #   113 
+
+# We will group together the categories to `First` and `Second & Above`
+
+cars.train$Owner_Type=as.factor(cars.train$Owner_Type) # convert into factor
+ntrain=nrow(cars.train)
+OwnerType=rep("First",ntrain)
+OwnerType[cars.train$Owner_Type=="Second"|cars.train$Owner_Type=="Third"|cars.train$Owner_Type=="Fourth & Above"] ="Second & Above"
+OwnerType=as.factor(OwnerType)
+cars.train$Owner_Type=OwnerType
+table(OwnerType) # Post-grouping
+
+# 8. `Mileage` : The mileage of the used car. 
+cars.train$Mileage = str_extract(cars.train$Mileage,pattern="(\\w+)") # extract the number only.
+cars.train$Mileage = as.numeric(cars.train$Mileage) # turn into numeric class
+Mileage=cars.train$Mileage
+
+# 9.`Engine` : is the engine CC of the used car.
+cars.train$Engine = str_extract(cars.train$Engine,pattern="(\\w+)") # extract the number only.
+cars.train$Engine=strtoi(cars.train$Engine) # String to integer
+
+# 10. `Power` : The power of the used car
+cars.train$Power=cars.train$Power
+cars.train$Power = strtoi(str_extract(cars.train$Power,"(\\w+)"))
+cars.train$Power=as.numeric(cars.train$Power)
+
+# 11. `Seats` : The number of seats in the used car.
+# We group the categories into 2, 4, 5, and 6 & Above due to the unbalance
+  #  2    4    5    6    7    8    9   10 
+  # 16   98 5055   31  674  134    3    5 
+Seats=rep("2",ntrain)
+Seats[cars.train$Seats=="4"]="4";Seats[cars.train$Seats=="5"]="5"; Seats[cars.train$Seats=="6"|cars.train$Seats=="7"|cars.train$Seats=="8"|cars.train$Seats=="9"|cars.train$Seats=="10"]="6 & Above"
+Seats=as.factor(Seats)
+cars.train$Seats=Seats
+table(Seats)
+
+
+```
+
+### Transforms
+```{r}
+
+# We will attempt to transform variables that are skewed using cube, sqrt, and log transforms. We will use the transform for the variable that most approximates the normal.
+
+# Engine
+par(mfrow=c(1,3))
+hist((cars.train$Engine)^(1/3)) 
+hist(sqrt(cars.train$Engine))
+hist(log(cars.train$Engine)) # most normal
+LogEngine=log(cars.train$Engine)
+
+# Power
+
+par(mfrow=c(1,3))
+hist(sqrt(cars.train$Power)) # most normal
+hist(cars.train$Power^(1/3))
+hist(log(cars.train$Power)) 
+SqrtPower=sqrt(cars.train$Power)
+
+
+# KMsDriven
+
+par(mfrow=c(1,3))
+hist(sqrt(cars.train$Kilometers_Driven)) 
+hist(cars.train$Kilometers_Driven^(1/3))
+hist(log(cars.train$Kilometers_Driven)) 
+
+
+Math.cbrt <- function(x) {
+    sign(x) * abs(x)^(1/3)
+}
+CubeKMsDriven=Math.cbrt(cars.train$Kilometers_Driven)
+
+
+```
+
+#### Mutating Dataset 
+For convenience, we will create a dataframe for the transformed and grouped variables.
+```{r}
+
+df = data.frame(logPrice,
+                Name=cars.train$Name,BodyType=cars.train$body.type,Age,
+                CubeKMsDriven,FuelType, Transmission, OwnerType,Mileage,
+                LogEngine = log(cars.train$Engine),SqrtPower=sqrt(cars.train$Power),Seats)
+
+
+
+corr.func(df)
+
+
+
+```
+
+### Training with Cross-Validation (k=3)
+```{r}
+
+# using crossv_kfold function under modelr library to create the list of training set and holdout set.
+
+library(modelr)
+set.seed(447)
+k=3
+cv=modelr::crossv_kfold(df,k)
+traindata=cv[[1]]
+testdata=cv[[2]]
+for(i in 1:k){
+    traindata[[i]]=data.frame(traindata[[i]])
+    testdata[[i]]=data.frame(testdata[[i]])
+}
+
+ 
+```
+
+
+### 3-Fold Tree Algorithms
+
+### Regression Tree (k=3)
+```{r}
+
+### Regression tree with full dataset on 3 folds.
+### This for loop generates regression trees with rpart library produces regression tree outputs, showing the tree splits and a regression tree plot. 
+RegTree = function(traindata,testdata){
+
+  CVTree=rpart(logPrice~.,data=traindata)
+  print(CVTree)
+  rpart.plot(CVTree)
+
+  meanByTNode=tapply(traindata$logPrice,CVTree$where,mean)
+
+  # The above matches the row numbers in the plotted version of the tree 
+  
+  Q25ByTNode=tapply(traindata$logPrice,CVTree$where,quantile,prob=0.25)
+  Q50ByTNode=tapply(traindata$logPrice,CVTree$where,median)
+  Q75ByTNode=tapply(traindata$logPrice,CVTree$where,quantile,prob=0.75)
+  ByTNode=cbind(meanByTNode,Q25ByTNode,Q50ByTNode,Q75ByTNode)
+  print(ByTNode) # mean, 25th percentile, 75th percentile, median by terminal node
+  
+  Q10ByTNode=tapply(traindata$logPrice,CVTree$where,quantile,prob=0.10)
+  Q90ByTNode=tapply(traindata$logPrice,CVTree$where,quantile,prob=0.90)
+  
+  
+  # Prediction for holdout set: mean and 50% prediction interval
+  meanpredRegTree=predict(CVTree,newdata=testdata,type="vector")
+  head(meanpredRegTree)
+  
+  FindUniquePos=function(values,groupValues,tolerance=1.e-5) { 
+  ngroup = length(groupValues) # number of groups (nodes) 
+
+  temp = unique(groupValues) 
+  if(length(temp)<ngroup) {
+    cat("Won't work: non-unique group values\n"); return(0); } 
+  npred = length(values) 
+  # number of cases to bin into a group label 
+  group = rep(0,npred) # initialize as group 0 
+  for(i in 1:ngroup) { # group[values==groupValues[i]]=i # better to use tolerance 
+    igroup = (abs(values-groupValues[i])<tolerance)
+    group[igroup] = i 
+    # group label according to position in groupValues 
+    } 
+    if( any(group==0) ) cat("Warning: some values not matched to groupValues\n") 
+  
+  return(group) }
+
+  
+  TNodeGroup=FindUniquePos(meanpredRegTree,meanByTNode)
+  Q10predRegTree=Q10ByTNode[TNodeGroup];Q90predRegTree=Q90ByTNode[TNodeGroup]
+  pred80IntRegTree=cbind(meanpredRegTree,Q10predRegTree,Q90predRegTree)
+  head(pred80IntRegTree)
+  Q25predRegTree=Q25ByTNode[TNodeGroup];
+  Q75predRegTree=Q75ByTNode[TNodeGroup]
+  pred50IntRegTree=cbind(meanpredRegTree,Q25predRegTree,Q75predRegTree)
+  
+  print(summary(pred50IntRegTree[,3]-pred50IntRegTree[,2]))
+  
+  
+  
+  ### Interval Scores
+#' Interval score function for prediction intervals, smaller value is better
+#' @description
+#' Interval score for prediction intervals
+#'
+#' @param predobj has 3 (or more) columns: pointprediction, predLB, predUB
+#' @param actual corresponding vector of actual values 
+#                      (in holdout set, for example)
+#' @param level level for prediction interval, e.g., 0.5 or 0.8
+#' @return list with 
+#'  summary consisting of level, average length, interval score, coverage rate
+#'  and  
+#'  imiss with cases where prediction intervals don't contain actual values
+#'
+intervalScore <<- function(predObj,actual,level) { 
+  n = nrow(predObj) 
+  alpha = 1-level 
+  ilow = (exp(actual)<exp(predObj[,2])) # overestimation
+  ihigh = (exp(actual)>exp(predObj[,3])) # underestimation 
+  sumlength = sum(exp(predObj[,3])-exp(predObj[,2])) # sum of lengths of prediction intervals 
+  sumlow = sum(exp(predObj[ilow,2])-exp(actual[ilow]))*2/alpha 
+  sumhigh = sum(exp(actual[ihigh])-exp(predObj[ihigh,3]))*2/alpha 
+  avglength = sumlength/n 
+  IS = (sumlength+sumlow+sumhigh)/n # average length + average under/over penalties 
+  cover = mean(exp(actual)>= exp(predObj[,2]) & exp(actual)<=exp(predObj[,3])) 
+  summ = c(level,avglength,IS,cover) 
+  # summary with level, average length, interval score, coverage rate 
+  imiss = which(ilow | ihigh) 
+  list(summary=summ, imiss=imiss)
+  
+  
+}
+
+ISTree50=intervalScore(pred50IntRegTree,testdata$logPrice,0.5)
+ISTree80=intervalScore(pred80IntRegTree,testdata$logPrice,0.8)
+outTree=rbind(ISTree50$summary,ISTree80$summary)
+
+colnames(outTree)=c("level","avgleng","IS","cover")
+print(outTree)}
+
+
+for (i in 1:k){
+  RegTree(traindata[[i]],testdata[[i]])
+}
+
+#The interval scores and average lengths of the prediction intervals also did not vary by much with the regression model although the coverage rate tends to exceed by those of the regression model by a small degree.
+```
+
+### Random Forest (k=3)
+```{r}
+### rfCVpredictions is a function that takes in a training dataset and testing (validation) set to perform random forest predictions. It produces dataframes of actual and predicted prices with plots. 
+
+rfCVpredictions = function(train,test){
+  
+  CVXTrain <- traindata[[i]][,-1] # Explanatory variables
+  CVYTrain <- traindata[[i]][,1] # Response variable
+  CVXTest <- testdata[[i]][,-1] # Explanatory variables
+  CVYTest <- testdata[[i]][,1] # Response Variable
+  regCV <- randomForest(x=CVXTrain,y=CVYTrain)
+  CVPredTrain <- predict(regCV,CVXTrain)
+  CVResultTrain <- data.frame(price=CVYTrain,
+                              predictions=CVPredTrain)
+  CVPredTest <- predict(regCV,CVXTest)
+  CVResultTest <- data.frame(price=CVYTest,predictions=CVPredTest)
+
+
+  print(head(CVResultTest))
+  print(head(CVResultTrain))
+  print(RMSE(CVResultTest$predictions,CVResultTest$price))
+
+
+  print(ggplot(CVResultTest,aes(x=predictions,y=price)) + geom_point() + geom_abline(intercept=0,slope=1)+
+    labs(x="Predicted Values",y="Actual Values",title=("Random Forest Predictions (k=3)")))
+
+CVResultTestDF=data.frame(CVResultTest)
+CVResultTestDF=CVResultTestDF %>% mutate(rowid=row_number())
+CVResultTestDF1=CVResultTestDF[1:nrow(CVResultTestDF),]
+
+CVMeltTest1 <- melt(CVResultTestDF1, id.vars = "rowid")
+
+par(mfrow=(c(2,1)))
+print(ggplot(CVMeltTest1,
+       aes(y = value,
+           x = rowid,
+           colour = variable)) +
+      geom_point() +
+      geom_line() +
+  ggtitle("Actual vs Predicted Used Car Prices")+ labs(x = "Car ID",y="Price"))
+par(mfrow=(c(2,1)))
+print(ggplot(CVResultTest,
+       aes(y = price,
+           x = predictions)) +
+      geom_point() +
+  ggtitle("Actual vs Predicted Used Car Prices")+ labs(x = "Car ID",y="Price"))
+
+
+}
+
+
+### Apply the rfCVpredictions to each of the train/test (validation) folds
+for (i in 1:k){
+  rfCVpredictions(traindata[[i]],testdata[[i]])
+  
+}
+```
+
+### Quantile Regression Forest (k=3)
+```{r}
+### Quantile Regression Forest Function: This portion uses the quantregForest library in R to produce tree-based ensemble method for estimation of conditional quantile. It takes in traindata and testdata as parameters. 
+
+### This function outputs a summary table of `avgleng` (average length of prediction intervals), `IS` (`Interval Score), and `cover` (Coverage Rate) for both the 0.5 and 0.8 level.
+QuantRegForest=function(traindata,testdata){
+library(quantregForest)
+  
+# Note that we e^(logPrice) predictions as we want to see the avgleng and IS in price's original units (we previous log-transformed it). 
+  
+qRF=quantregForest(traindata[,-1],traindata[,1],keep.inbag = TRUE)
+predRF=predict(qRF,what=c(.1,.25,.5,.75,.9),newdata=(testdata[,-1]))
+head(predRF)
+
+
+
+IS50qRF=intervalScore(predRF[,c(3,2,4)],testdata$logPrice,0.5)
+IS80qRF=intervalScore(predRF[,c(3,1,5)],testdata$logPrice,0.8)
+
+outqRF=rbind(IS50qRF$summary,IS80qRF$summary)
+colnames(outqRF)=c("level","avgleng","IS","cover")
+print(outqRF)
+
+# Out-of-bag predictions
+quant.outofbag <<- predict(qRF)
+quant.newdata<<-predict(qRF,newdata=testdata[,-1])
+
+}
+
+# Apply the QuantRegForest to the train/test(validation) sets
+for (i in 1:k){
+  QuantRegForest(traindata[[i]],testdata[[i]])
+}
+
+
+
+
+# Quantile regression forest: With cross validation, the coverage rates are very good - close to the intended levels but do exceed those of regression models by a small amount. We can conclude that the quantile regression forest algorithm performs adequately given its smaller interval scores compared to other models and shorter average lengths of prediction intervals. 
+
+```
+
+
+### Training with Cross-Validation (k=5)
+```{r}
+
+# using crossv_kfold function under modelr library to create the list of training set and holdout set.
+
+set.seed(447)
+k=5
+cv=modelr::crossv_kfold(df,k)
+traindata=cv[[1]]
+testdata=cv[[2]]
+for(i in 1:k){
+    traindata[[i]]=data.frame(traindata[[i]])
+    testdata[[i]]=data.frame(testdata[[i]])
+}
+
+ 
+```
+
+
+### 5-Fold Tree Algorithms
+
+### Regression Tree (k=5)
+```{r}
+
+### Regression tree with full dataset on 5 folds.
+### This for loop generates regression trees with rpart library produces regression tree outputs, showing the tree splits and a regression tree plot. 
+
+
+# Apply RegTree function to all the traindata/testdata(validation sets)
+for (i in 1:k){
+  RegTree(traindata[[i]],testdata[[i]])
+  
+}
+
+```
+
+
+
+### Random Forest Predictions (k=5)
+```{r}
+### rfCVpredictions is a function that takes in a training dataset and testing (validation) set to perform random forest predictions. It produces dataframes of actual and predicted prices with plots. 
+
+rfCVpredictions = function(train,test){
+  
+  CVXTrain <<- traindata[[i]][,-1] # Explanatory variables
+  CVYTrain <<- traindata[[i]][,1] # Response variable
+  CVXTest <<- testdata[[i]][,-1] # Explanatory variables
+  CVYTest <<- testdata[[i]][,1] # Response Variable
+  regCV = randomForest(x=CVXTrain,y=CVYTrain)
+  CVPredTrain <<- predict(regCV,CVXTrain)
+  CVResultTrain <<- data.frame(price=CVYTrain,
+                              predictions=CVPredTrain)
+  CVPredTest <<- predict(regCV,CVXTest)
+  CVResultTest <<- data.frame(price=CVYTest,predictions=CVPredTest)
+  
+
+  print(head(CVResultTest))
+  print(head(CVResultTrain))
+  print(RMSE(CVResultTest$predictions,CVResultTest$price))
+  
+
+  print(ggplot(CVResultTest,aes(x=predictions,y=price)) + geom_point() + geom_abline(intercept=0,slope=1)+
+    labs(x="Predicted Values",y="Actual Values",title="Random Forest Predictions (k=5)"))
+ 
+CVResultTestDF=data.frame(CVResultTest)
+CVResultTestDF=CVResultTestDF %>% mutate(rowid=row_number())
+CVResultTestDF1=CVResultTestDF[1:nrow(CVResultTestDF),]
+
+CVMeltTest1 <- melt(CVResultTestDF1, id.vars = "rowid")
+
+par(mfrow=(c(2,1)))
+print(ggplot(CVMeltTest1, 
+       aes(y = value, 
+           x = rowid,
+           colour = variable)) +
+      geom_point() +
+      geom_line() +
+  ggtitle("Actual vs Predicted Used Car Prices")+ labs(x = "Car ID",y="Price"))
+par(mfrow=(c(2,1)))
+print(ggplot(CVResultTest, 
+       aes(y = price, 
+           x = predictions)) +
+      geom_point() +
+  ggtitle("Actual vs Predicted Used Car Prices")+ labs(x = "Car ID",y="Price"))
+
+
+}
+
+
+### Apply the rfCVpredictions to each of the train/test (validation) folds
+for (i in 1:k){
+  rfCVpredictions(traindata[[i]],testdata[[i]])
+  
+}
+```
+
+### Quantile Regression Forest (k=5)
+```{r}
+
+# Apply the QuantRegForest to the train/test(validation) sets
+for (i in 1:k){
+  QuantRegForest(traindata[[i]],testdata[[i]])
+}
+
+
+# We can see that the quantile regression forest consistently performs better than the regression model and regression trees for a differed number of folds.
+
+```
+
+
+
+

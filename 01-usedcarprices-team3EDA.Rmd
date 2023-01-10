@@ -1,0 +1,161 @@
+---
+title: "UsedCarPrices-EDA"
+author: 'Chin Chen Lo #13216940'
+date: "02/03/2022"
+output: pdf_document
+---
+
+
+```{r setup, include=FALSE}
+library(ggplot2)
+library(dplyr)
+library(stringr)
+library(corrplot)
+library(GGally)
+```
+
+# Dataset
+In this file, we take a look at the distribution of the variables. There are simple plots to first-hand visualize the variables.
+
+```{r echo = FALSE}
+
+#                    DATASETS                          #
+# -----------------------------------------------------#
+
+# Training Dataset
+cars.train <- read.csv("C:/Users/Melody Lo/OneDrive - UBC/Desktop/2022W/STAT 447B/Project/cars.train.csv")
+
+
+#                    VARIABLES                         #
+# -----------------------------------------------------#
+# Price
+price=cars.train$Price*1666.49
+summary(price)
+hist(price,main="Price of Used Cars in CAD",xlab="Price in CAD",ylab="Frequency",col="paleturquoise",sub="1 INR LAHKS = 1666.49 CAD Conversion Rate Was Used")
+
+# Unique Brands
+table(cars.train$Name)
+
+
+# Year
+table(cars.train$Year)
+
+
+# Kilometers_Driven
+
+
+boxplot(cars.train$Kilometers_Driven,ylim=c(-50,850000),main="Used Cars' Kilometers Driven, Training Set",ylab='KMs',col='lightblue')
+
+
+
+
+# Fuel_Type
+table(cars.train$Fuel_Type)
+fueltype.counts = sort(table(cars.train$Fuel_Type),decreasing=FALSE)
+barplot(fueltype.counts,main="Used Cars by Fuel Type",xlab="Fuel Type",horiz=TRUE,col='lightyellow')
+
+
+# Transmission 
+transmission.counts=table(cars.train$Transmission)
+barplot(transmission.counts,main="Used Cars by Transmission Type",xlab="Transmission Type",horiz=TRUE,col='orange')
+summary(cars.train)
+
+# Owner Type
+ownertype.counts=sort(table(cars.train$Owner_Type),decreasing=TRUE)
+barplot(ownertype.counts,main="Used Cars by Owner Type",xlab="Owner Type",col='lightpink')
+### 
+
+# Mileage
+sum(cars.train$Mileage==""|cars.train$Mileage=="0.0 kmpl") #70
+
+mileage = str_extract(cars.train$Mileage,pattern="(\\w+)")
+mileage=as.numeric(mileage)
+
+
+mileage[is.na(mileage)]<-mean(mileage,na.rm=TRUE)
+cars.train$Mileage=mileage
+
+summary(mileage)
+cor(mileage,cars.train$Price)
+cars.train$Mileage=mileage
+
+# Engine 
+sum(cars.train$Engine=="") #36
+engine = sort(cars.train$Engine,decreasing=FALSE)
+ 
+engine = str_extract(engine,"(\\w+)")
+engine = strtoi(engine)
+
+hist(engine,main="Distribution of Engines in CC",xlab="Egnine in CC",col="paleturquoise")
+
+
+# Power
+sum(cars.train$Power==""|cars.train$Power=="null bhp") #143
+cars.train$Power = strtoi(str_extract(cars.train$Power,"(\\w+)"))
+
+cars.train$Power=as.numeric(cars.train$Power)
+cars.train$Power[is.na(power)]<-mean(power,na.rm=TRUE)
+sum(is.na(power))
+
+hist(power,main="Histogram of Power in BHP",xlab="Brake Horse Power bhp",col="paleturquoise")
+
+# Seats
+seats=table(cars.train$Seats)
+barplot(seats,main="Used Cars by Number of Seats",xlab="Number of Seats",ylab="Frequency",col="paleturquoise")
+cor(cars.train$Seats,cars.train$Price)
+
+# Price 
+hist(cars.train$Price)
+summary(cars.train$Price)
+
+
+```
+
+
+### Correlation Diagram
+```{r}
+
+
+# The `corr.funct` takes in a dataframe produces a spearman correlation matrix for the numerical data and produces a correlation plot. 
+
+
+corr.func = function(df){
+
+# Check for Multicollinearity
+numericData <- df[,sapply(df, is.numeric)] 
+#filter all numeric vars
+numericData <- numericData[, -c(1)] 
+#drop the id column and dependent var
+
+data_rcorr=as.matrix(numericData)
+
+library(corrplot)
+
+corMat <- cor(numericData) #correlation matrix
+corrplot(corMat, method = "number", type = "lower")
+print(as.dist(round(cor(numericData),2)))
+
+
+}
+
+
+```
+
+### Potential Oversampling Methods
+```{r}
+
+sub=data.frame(Name=cars.train$Name,price)
+
+
+meanprice= data.frame(sub %>% group_by(Name) %>% summarise_at(vars(price),funs(mean(.))))
+
+meanprice
+
+sub2=data.frame(cars.train$Power,price)
+
+
+
+
+```
+
+
