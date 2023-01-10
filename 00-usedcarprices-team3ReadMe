@@ -1,0 +1,13 @@
+# Used Car Prices in India 
+# This zip file contains the following:
+
+@ cars.train.csv (It is the full dataset that we used, taken from Kaggle)
+@ dictionary (The dataset description from the data provider with clarifications about the dataset)
+
+
+# 01-usedcarprices-team3EDA.Rmd
+# 02-usedcarprices-team3Tree.rmd
+# 03-usedcarprices-team3Reg.Rmd
+
+You may run the code in the following order.
+Both 02 and 03 contain the data pre-processing, cleaning, and transformations.
